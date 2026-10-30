@@ -64,6 +64,14 @@ jobs:
           appimagetool --no-appstream AppDir "wine-custom_${IN_WINE_VERSION}_${IN_LABEL}-${ARCH}.AppImage"
           ls -l ./*.AppImage
 
+          # The same AppDir as a plain tarball, for distros that dislike AppImages.
+          # Unpack anywhere and run ./<dir>/AppRun (it needs no FUSE and no installation).
+          d="wine-custom_${IN_WINE_VERSION}_${IN_LABEL}-${ARCH}-bundled"
+          cp -a AppDir "$d"
+          tar -cf - "$d" | xz -T0 -9 > "$d.tar.xz"
+          rm -rf "$d"
+          ls -l ./*.tar.xz
+
       - name: Report size and glibc requirement
         run: |
           f=$(ls ./*.AppImage)
@@ -87,5 +95,7 @@ jobs:
           automatic_release_tag: "appimage-${{ inputs.label }}"
           prerelease: true
           draft: false
-          files: ./*.AppImage
+          files: |
+            ./*.AppImage
+            ./*.tar.xz
           repo_token: ${{ secrets.GITHUB_TOKEN }}
