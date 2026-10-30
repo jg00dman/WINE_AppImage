@@ -1,0 +1,91 @@
+name: Custom Wine AppImage
+
+# Wraps a Wine tarball from a Wine-Builds release (by default this account's own
+# fork, see wine-custom.yml) into an AppImage and publishes it as a prerelease.
+# Run it by hand from the Actions tab after the "Wine custom build" workflow in the
+# Wine-Builds repository has produced a tarball.
+#
+# The output is named wine-custom_<wine_version>_<label>-x86_64.AppImage, following
+# OuDedetai's wine-[branch]_[version]-[arch] convention. Keep 'label' free of hyphens:
+# OuDedetai splits the file name on them to read the version.
+
+on:
+  workflow_dispatch:
+    inputs:
+      wine_builds_repo:
+        description: "Repository holding the Wine tarball release (owner/name)"
+        default: "jg00dman/Wine-Builds"
+        required: true
+      wine_builds_tag:
+        description: "Release tag in that repository (e.g. custom-cefshare)"
+        required: true
+      tarball:
+        description: "Tarball file name in that release (e.g. wine-10.13-custom-cefshare-amd64.tar.xz)"
+        required: true
+      wine_version:
+        description: "Wine version for the AppImage file name (e.g. 10.13)"
+        required: true
+      label:
+        description: "Label for the file name and release tag, no hyphens (e.g. cefshare)"
+        required: true
+
+permissions:
+  contents: write   # needed to publish the release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Prerequisites
+        run: |
+          wget -q "https://github.com/AppImageCrafters/appimage-builder/releases/download/v1.0.3/appimage-builder-1.0.3-x86_64.AppImage" -O appimage-builder ; chmod +x appimage-builder ; ./appimage-builder --appimage-extract &>/dev/null
+          sudo wget -q https://github.com/pkgforge-dev/appimagetool-uruntime/releases/download/continuous/appimagetool-x86_64.AppImage -O /usr/local/bin/appimagetool && sudo chmod +x /usr/local/bin/appimagetool
+          sudo mkdir -p /usr/share/icons/hicolor/scalable/ ; sudo cp wine.svg /usr/share/icons/hicolor/scalable/
+
+      - name: Build AppImage
+        env:
+          # Inputs are passed through the environment, never interpolated into the script.
+          WINE_BUILDS_REPO: ${{ inputs.wine_builds_repo }}
+          WINE_BUILDS_TAG: ${{ inputs.wine_builds_tag }}
+          WINE_TARBALL: ${{ inputs.tarball }}
+          IN_WINE_VERSION: ${{ inputs.wine_version }}
+          IN_LABEL: ${{ inputs.label }}
+        run: |
+          export WINE_VER="custom_${IN_WINE_VERSION}_${IN_LABEL}"
+          squashfs-root/AppRun --skip-appimage --recipe wine-custom.yml
+          export ARCH="$(uname -m)"
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export URUNTIME_PRELOAD=0
+
+          echo "Generating AppImage..."
+          appimagetool --no-appstream AppDir "wine-custom_${IN_WINE_VERSION}_${IN_LABEL}-${ARCH}.AppImage"
+          ls -l ./*.AppImage
+
+      - name: Report size and glibc requirement
+        run: |
+          f=$(ls ./*.AppImage)
+          chmod +x "$f"
+          d=$(mktemp -d)
+          (cd "$d" && APPIMAGE_EXTRACT_AND_RUN=1 "$OLDPWD/$f" --appimage-extract >/dev/null 2>&1)
+          w="$d/squashfs-root/opt/wine-devel"
+          need=$(objdump -T "$w"/bin/wineserver "$w"/lib/wine/x86_64-unix/ntdll.so 2>/dev/null \
+                   | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1)
+          {
+            echo "### $(basename "$f")"
+            echo "- AppImage: $(du -h "$f" | cut -f1)"
+            echo "- unpacked: $(du -sh "$d/squashfs-root" | cut -f1)"
+            echo "- newest glibc symbol needed by wineserver/ntdll.so: ${need:-unknown}"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Release
+        uses: marvinpinto/action-automatic-releases@6273874b61ebc8c71f1a61b2d98e234cf389b303
+        with:
+          title: "Custom Wine AppImage (${{ inputs.label }})"
+          automatic_release_tag: "appimage-${{ inputs.label }}"
+          prerelease: true
+          draft: false
+          files: ./*.AppImage
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
