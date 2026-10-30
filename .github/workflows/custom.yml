@@ -89,13 +89,13 @@ jobs:
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Release
-        uses: marvinpinto/action-automatic-releases@6273874b61ebc8c71f1a61b2d98e234cf389b303
-        with:
-          title: "Custom Wine AppImage (${{ inputs.label }})"
-          automatic_release_tag: "appimage-${{ inputs.label }}"
-          prerelease: true
-          draft: false
-          files: |
-            ./*.AppImage
-            ./*.tar.xz
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IN_LABEL: ${{ inputs.label }}
+        run: |
+          tag="appimage-${IN_LABEL}"
+          gh release delete "$tag" --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
+          gh release create "$tag" --prerelease --target "$GITHUB_SHA" \
+            --title "Custom Wine AppImage (${IN_LABEL})" \
+            --notes "Experimental build. AppImage plus a tarball of the same bundled folder." \
+            --repo "$GITHUB_REPOSITORY" ./*.AppImage ./*.tar.xz
